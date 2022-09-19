@@ -1,0 +1,116 @@
+substitutions:
+  esp_name: WoWa Victron #Device Name
+  esp_hostname: wowa-hw622-esp8266
+  ip_address: 10.3.1.12
+  ip_gw: 10.3.1.1
+  ip_netmask: 255.255.255.0
+################################################################################
+esphome:
+  name: ${esp_hostname}
+#  on_boot:
+#  - lambda: |-
+#      id(my_ota).set_auth_password("64f81ed8785500b6e61c5f73a81ab9fa");
+################################################################################
+esp8266:
+  board: d1_mini
+################################################################################
+# Enable logging
+logger:
+  level: info
+################################################################################
+debug:
+  update_interval: 60s
+################################################################################
+ota:
+  id: my_ota
+  password: !secret ota_password
+################################################################################
+wifi:
+  ssid: !secret wifi_wowa_ssid
+  password: !secret wifi_wowa_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${ip_gw}
+    subnet: ${ip_netmask}
+    dns1: ${ip_gw}
+  use_address: ${ip_address}
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${esp_name} Fallback Hotspot"
+    password: !secret ap_password
+################################################################################
+captive_portal:
+
+################################################################################
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Berlin"
+    servers: "de.pool.ntp.org"
+################################################################################
+web_server:
+  port: 80
+#  include_internal: true
+################################################################################
+mqtt:
+  broker: 10.3.1.1
+  port: 1888
+################################################################################
+button:
+  - platform: restart
+    name: "${esp_name} Restart"
+
+################################################################################
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${esp_name} WiFi IP Address"
+      id: ESP_IPAddress
+    mac_address:
+      name: "${esp_name} WiFi MAC"
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/switch/victron_battery_loader/state
+    name: "Victron Relais MQTT"
+    id: victron_relais
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: |-
+                if (x == "ON") {
+                  return (true);
+                }
+                return (false);
+            then:
+              - switch.turn_on: relay_gpio
+            else:
+              - switch.turn_off: relay_gpio
+            
+################################################################################
+sensor:
+  - platform: debug
+    free:
+      name: "${esp_name} Heap Free"
+
+  - platform: wifi_signal
+    name: "${esp_name} WiFi Strength"
+    update_interval: 60s
+    
+  - platform: template
+    name: "${esp_name} NTP"
+    lambda: |-
+      int now = id(sntp_time).timestamp_now();
+      return now;
+    update_interval: 60s
+    accuracy_decimals: 0 
+################################################################################
+switch:
+  - platform: gpio
+    pin: D2
+    id: relay_gpio
+    name: "Victron Battery Loader"
+
+################################################################################

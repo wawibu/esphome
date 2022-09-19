@@ -1,0 +1,136 @@
+substitutions:
+  esp_name: WoWa Ultrasonic #Device Name
+  esp_hostname: wowa-sr04-esp8266
+  ip_address: 10.3.1.14
+  ip_gw: 10.3.1.1
+  ip_netmask: 255.255.255.0
+################################################################################
+esphome:
+  name: ${esp_hostname}
+################################################################################
+esp8266:
+  board: d1_mini
+################################################################################
+# Enable logging
+logger:
+  level: info
+################################################################################
+ota:
+  id: my_ota
+  password: !secret ota_password
+################################################################################
+wifi:
+  ssid: !secret wifi_wowa_ssid
+  password: !secret wifi_wowa_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${ip_gw}
+    subnet: ${ip_netmask}
+    dns1: ${ip_gw}
+  use_address: ${ip_address}
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${esp_name} Fallback Hotspot"
+    password: !secret ap_password
+################################################################################
+captive_portal:
+
+################################################################################
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Berlin"
+    servers: "de.pool.ntp.org"
+################################################################################    
+web_server:
+  port: 80
+  include_internal: true
+################################################################################
+mqtt:
+  broker: 10.3.1.1
+  port: 1888
+  id: mqtt_client
+################################################################################
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${esp_name} IP Address"
+      id: wowa_sr04_ipaddress
+      update_interval: 60s
+################################################################################
+sensor:
+  - platform: wifi_signal
+    name: "${esp_name} WiFi Signal Sensor"
+    id: wowa_sr04_wifi_strength 
+    update_interval: 60s
+    
+  - platform: template
+    name: "${esp_name} NTP"
+    lambda: |-
+      int now = id(sntp_time).timestamp_now();
+      return now;
+    update_interval: 60s
+    accuracy_decimals: 0 
+
+  - platform: ultrasonic
+    id: wowa_ultrasonic
+    trigger_pin: D7
+    echo_pin: D6
+    name: "${esp_name} Ultrasonic"
+    update_interval: 10s
+    unit_of_measurement: "cm"
+    accuracy_decimals: 0
+    filters:
+      - multiply: 100
+    on_value:
+      - script.execute: set_level_in_liters
+      - component.update: wowa_waterlevel
+      - mqtt.publish:
+          topic: wowa-sr04-esp8266/sensor/wowa_ultrasonic_liters/state
+          payload: !lambda |-
+              return to_string(id(wowa_waterlevel).state);
+        
+  - platform: template
+    id: wowa_waterlevel
+    name: "${esp_name} Liters"
+    unit_of_measurement: "l"
+    accuracy_decimals: 0
+
+################################################################################
+script:
+  - id: set_level_in_liters
+    then:
+      lambda: |-
+        if       (id(wowa_ultrasonic).state >= 22 ) { id(wowa_waterlevel).state =  0; }
+        else  if (id(wowa_ultrasonic).state >= 21 ) { id(wowa_waterlevel).state =  2; }
+        else  if (id(wowa_ultrasonic).state >= 20 ) { id(wowa_waterlevel).state =  4; }
+        else  if (id(wowa_ultrasonic).state >= 19 ) { id(wowa_waterlevel).state =  6; }
+        else  if (id(wowa_ultrasonic).state >= 18 ) { id(wowa_waterlevel).state =  8; }
+        else  if (id(wowa_ultrasonic).state >= 17 ) { id(wowa_waterlevel).state = 10; }
+        else  if (id(wowa_ultrasonic).state >= 16 ) { id(wowa_waterlevel).state = 12; }
+        else  if (id(wowa_ultrasonic).state >= 15 ) { id(wowa_waterlevel).state = 14; }
+        else  if (id(wowa_ultrasonic).state >= 14 ) { id(wowa_waterlevel).state = 16; }
+        else  if (id(wowa_ultrasonic).state >= 13 ) { id(wowa_waterlevel).state = 18; }
+        else  if (id(wowa_ultrasonic).state >= 12 ) { id(wowa_waterlevel).state = 20; }
+        else  if (id(wowa_ultrasonic).state >= 11 ) { id(wowa_waterlevel).state = 22; }
+        else  if (id(wowa_ultrasonic).state >= 10 ) { id(wowa_waterlevel).state = 24; }
+        else  if (id(wowa_ultrasonic).state >=  9 ) { id(wowa_waterlevel).state = 26; }
+        else  if (id(wowa_ultrasonic).state >=  8 ) { id(wowa_waterlevel).state = 28; }
+        else  if (id(wowa_ultrasonic).state >=  7 ) { id(wowa_waterlevel).state = 30; }
+        else  if (id(wowa_ultrasonic).state >=  6 ) { id(wowa_waterlevel).state = 32; }
+        else  if (id(wowa_ultrasonic).state >=  5 ) { id(wowa_waterlevel).state = 34; }
+        else  if (id(wowa_ultrasonic).state >=  4 ) { id(wowa_waterlevel).state = 36; }
+        else                                        { id(wowa_waterlevel).state = 40; }
+
+        ESP_LOGI("LAMBDA","Ultrasonic Value %f",id(wowa_ultrasonic).state);
+        ESP_LOGI("LAMBDA","Waterlevel set to %f liters",id(wowa_waterlevel).state);
+
+
+#const uint8_t         _LITER[] = {    0,  0,  0,  0, 36, 
+#                                     34, 32, 30, 28, 26,
+#                                     24, 22, 20, 18, 16,
+#                                     14, 12, 10,  8,  6,
+#                                      4,  2,  0,  0,  0,
+#                                      0,  0,  0,  0,  0
+#                                  };

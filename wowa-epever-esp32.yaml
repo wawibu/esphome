@@ -1,0 +1,762 @@
+substitutions:
+#  updates_internal: 5s
+#  updates_external: 60s
+#  updates_totals: 2h
+  esp_hostname: wowa-epever-esp32
+  esp_name: WoWa Epever
+  ip_address: 10.3.1.10
+  ip_gw: 10.3.1.1
+  ip_netmask: 255.255.255.0
+################################################################################  
+esphome:
+  name: ${esp_hostname}
+
+  platformio_options:
+    ## larger stack size required with all registers enable_load_test
+    ## reduce registers or wait for integration of 2.0.0 arduinoespressif32
+    ## not yet working needs 2.0
+    build_flags:
+      - -DCONFIG_ARDUINO_LOOP_STACK_SIZE=32768
+
+  on_boot:
+    ## configure controller settings at setup
+    ## make sure priority is lower than setup_priority of modbus_controller
+    priority: -100
+    then:
+      - lambda: |-
+          // get local time and sync to controller
+          time_t now = ::time(nullptr);
+          struct tm *time_info = ::localtime(&now);
+          int seconds = time_info->tm_sec;
+          int minutes = time_info->tm_min;
+          int hour = time_info->tm_hour;
+          int day = time_info->tm_mday;
+          int month = time_info->tm_mon + 1;
+          int year = time_info->tm_year % 100;
+          esphome::modbus_controller::ModbusController *controller = id(epever);
+          // if there is no internet connection localtime returns year 70
+          if (year != 70) {
+            // create the payload
+            std::vector<uint16_t> rtc_data = {uint16_t((minutes << 8) | seconds), uint16_t((day << 8) | hour),
+                                              uint16_t((year << 8) | month)};
+            // Create a modbus command item with the time information as the payload
+            esphome::modbus_controller::ModbusCommandItem set_rtc_command =
+                esphome::modbus_controller::ModbusCommandItem::create_write_multiple_command(controller, 0x9013, 3, rtc_data);
+            // Submit the command to the send queue
+            epever->queue_command(set_rtc_command);
+            ESP_LOGI("ModbusLambda", "EPSOLAR RTC set to %02d:%02d:%02d %02d.%02d.%04d", hour, minutes, seconds, day, month,
+                    year + 2000);
+          }
+          // Battery settings
+          // Note: these values are examples only and apply my AGM Battery
+          std::vector<uint16_t> battery_settings1 = {
+              0,       // 9000 Battery Type 0 =  User
+              0x0073,  // 9001 Battery Cap 0x55 == 115AH
+              0x012C,  // 9002 Temp compensation -3V /°C/2V
+              0x05DC,  // 9003 0x5DC == 1500 Over Voltage Disconnect Voltage 15,0
+              0x058C,  // 9004 0x58C == 1480 Charging Limit Voltage 14,8
+              0x058C,  // 9005 Over Voltage Reconnect Voltage 14,8
+              0x05BF,  // 9006 Equalize Charging Voltage 14,6
+              0x05BE,  // 9007 Boost Charging Voltage 14,7
+              0x0550,  // 9008 Float Charging Voltage 13,6
+              0x0528,  // 9009 Boost Reconnect Charging Voltage 13,2
+              0x04C4,  // 900A Low Voltage Reconnect Voltage 12,2
+              0x04B0,  // 900B Under Voltage Warning Reconnect Voltage 12,0
+              0x04BA,  // 900c Under Volt. Warning Volt 12,1
+              0x04BA,  // 900d Low Volt. Disconnect Volt. 11.8
+              0x04BA   // 900E Discharging Limit Voltage 11.8
+          };
+
+          // Boost and equalization periods
+          std::vector<uint16_t> battery_settings3 = {
+              0x0000,  // 906B Equalize Duration (min.) 0
+              0x0075   // 906C Boost Duration (aka absorb) 117 mins
+          };
+          esphome::modbus_controller::ModbusCommandItem set_battery1_command =
+              esphome::modbus_controller::ModbusCommandItem::create_write_multiple_command(controller, 0x9000, battery_settings1.size() ,
+                                                                                          battery_settings1);
+
+          esphome::modbus_controller::ModbusCommandItem set_battery3_command =
+              esphome::modbus_controller::ModbusCommandItem::create_write_multiple_command(controller, 0x906B, battery_settings3.size(),
+                                                                                          battery_settings3);
+          
+          delay(200) ;
+          controller->queue_command(set_battery1_command);
+          delay(200) ;
+          controller->queue_command(set_battery3_command);
+          ESP_LOGI("ModbusLambda", "EPSOLAR Battery set");
+################################################################################
+esp32:
+  board: ttgo-t7-v13-mini32 
+  framework:
+    type: arduino
+    version: latest
+################################################################################
+web_server:
+  port: 80
+################################################################################
+wifi:
+  ssid: !secret wifi_wowa_ssid
+  password: !secret wifi_wowa_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${ip_gw}
+    subnet: ${ip_netmask}
+    dns1: ${ip_gw}
+  use_address: ${ip_address}
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${esp_name} Fallback Hotspot"
+    password: !secret ap_password
+################################################################################
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Berlin"
+    servers: "de.pool.ntp.org"
+################################################################################
+# Enable logging
+#logger:
+#  level: info
+# Enable Home Assistant API
+#api:
+#  reboot_timeout: 0s
+################################################################################
+mqtt:
+  broker: 10.3.1.1
+  port: 1888 
+  id: MQTT_SLATE
+################################################################################
+ota:
+  id: my_ota
+  password: !secret ota_password
+################################################################################ 
+uart:
+  - id: uart_115200_modbus
+    tx_pin: 18
+    rx_pin: 19
+    baud_rate: 115200
+    stop_bits: 1
+  
+  - id: uart_9600_modbus
+    tx_pin: 25
+    rx_pin: 27
+    baud_rate: 9600
+    stop_bits: 1
+  
+  - id: uart_9600_mhz
+    tx_pin: 1
+    rx_pin: 3
+    baud_rate: 9600
+    stop_bits: 1
+#    debug:
+#      direction: BOTH
+#      dummy_receiver: false
+#      after:
+#        delimiter: "\n"
+#      sequence:
+#        - lambda: UARTDebug::log_string(direction, bytes);
+################################################################################
+modbus:
+  - id: mod_bus_epever
+    send_wait_time: 200ms
+    uart_id: uart_115200_modbus
+    
+  - id: mod_bus_sdm
+    send_wait_time: 200ms
+    uart_id: uart_9600_modbus
+################################################################################
+modbus_controller:
+  - id: epever
+    address: 0x01
+    modbus_id: mod_bus_epever
+    command_throttle: 200ms
+    setup_priority: -10
+    update_interval: 60s
+  - id: epever_total
+    address: 0x01
+    modbus_id: mod_bus_epever
+    command_throttle: 200ms
+    setup_priority: -10
+    update_interval: 2h
+################################################################################    
+sensor:
+  # -------------------------------------------------------------------------- #
+  - platform: mqtt_subscribe
+    topic: wowa-sr04-esp8266/sensor/wowa_ultrasonic_liters/state
+    name: "Water remaining"
+    id: WoWa_RemainingWater
+    unit_of_measurement: "l"
+    accuracy_decimals: 0
+  
+  - platform: mqtt_subscribe
+    topic: WoWaIn/Landstrom/used
+    name: "Landstrom Used"
+    id: WoWa_LandPowerUsed
+    
+  - platform: mqtt_subscribe
+    topic: WoWaIn/Astro/moonage
+    name: "Astro Moon Age"
+    id: Astro_MoonAge
+    
+  - platform: mqtt_subscribe
+    topic: WoWaIn/Astro/moonpercent
+    name: "Astro Moon Percent"
+    id: Astro_MoonPercent
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/current/temperatur
+    name: "Weather +0 Temp Current"
+    id: Weather0_TempCurrent
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/current/humidity
+    name: "Weather +0 Humidity"
+    id: Weather0_Humidity
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/current/temperatur_max
+    name: "Weather +0 Temp Max"
+    id: Weather0_TempMax 
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/current/temperatur_min
+    name: "Weather +0 Temp Min"
+    id: Weather0_TempMin
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day1/temperatur_max
+    name: "Weather +1 Temp Max"
+    id: Weather1_TempMax 
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day1/temperatur_min
+    name: "Weather +1 Temp Min"
+    id: Weather1_TempMin
+    
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day1/time
+    name: "Weather +1 Time"
+    id: Weather1_Time 
+    accuracy_decimals: 0
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day2/temperatur_max
+    name: "Weather +2 Temp Max"
+    id: Weather2_TempMax 
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day2/temperatur_min
+    name: "Weather +2 Temp Min"
+    id: Weather2_TempMin
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day2/time
+    name: "Weather +2 Time"
+    id: Weather2_Time
+    accuracy_decimals: 0
+  # -------------------------------------------------------------------------- #
+
+  - platform: wifi_signal
+    name: "${esp_name} WiFi Signal Sensor"
+    update_interval: 60s
+
+  ##############################################################################
+  #           SDM120 Modbus 
+  ##############################################################################
+  - platform: sdm_meter
+    modbus_id: mod_bus_sdm
+    address: 55
+    phase_a:
+      current:
+        name: "SDM120M Current"
+        id: sdm120_current
+      voltage:
+        name: "SDM120M Voltage"
+        id: sdm120_voltage
+      active_power:
+        name: "SDM120M Power"
+        id: sdm120_power
+    frequency:
+      name: "SDM120M Frequency"
+      id: sdm120_frequency
+    import_active_energy:
+      name: "SDM120M Import Active Energy"
+      id: sdm120_import_active_energy
+    update_interval: 60s
+
+  ##############################################################################
+  #           Epever 
+  ##############################################################################
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: pv_input_voltage
+    name: "PV voltage"
+    address: 0x3100
+    unit_of_measurement: "V"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: pv_input_current
+    name: "PV current"
+    address: 0x3101
+    unit_of_measurement: "A"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: pv_input_power
+    name: "PV power"
+    address: 0x3102
+    unit_of_measurement: "W"
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_voltage
+    name: "Charging voltage"
+    address: 0x3104
+    unit_of_measurement: "V"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_current
+    name: "Charging current"
+    address: 0x3105
+    unit_of_measurement: "A"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_power
+    name: "Charging power"
+    address: 0x3106
+    unit_of_measurement: "W"
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: load_voltage
+    name: "Load voltage"
+    address: 0x310C
+    unit_of_measurement: "V"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: load_current
+    name: "Load Current"
+    address: 0x310D
+    unit_of_measurement: "A"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: load_power
+    name: "Load power"
+    address: 0x310E
+    unit_of_measurement: "W"
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_temperature
+    name: "Battery temperature"
+    address: 0x3110
+    unit_of_measurement: °C
+    register_type: read
+    value_type: S_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_voltage
+    name: "Battery voltage"
+    address: 0x331A
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    unit_of_measurement: "V"
+    filters:
+      - multiply: 0.01
+    on_value_range:
+      below: 11.9
+      then:
+        - switch.turn_on: victron_battery_loader
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_current
+    name: "Battery current"
+    address: 0x331B
+    register_type: read
+    value_type: S_DWORD_R
+    register_count: 2
+    accuracy_decimals: 3
+    unit_of_measurement: "A"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: battery_soc
+    name: "Battery SOC"
+    address: 0x311A
+    unit_of_measurement: "%"
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: max_pv_voltage_today
+    name: "PV voltage today maximum"
+    address: 0x3300
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    unit_of_measurement: "V"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: min_pv_voltage_today
+    name: "PV voltage today minimum"
+    address: 0x3301
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    unit_of_measurement: "V"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: max_battery_voltage_today
+    name: "Battery voltage today maximum"
+    address: 0x3302
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    unit_of_measurement: "V"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: min_battery_today
+    name: "Battery voltage today minimum"
+    address: 0x3303
+    register_type: read
+    value_type: U_WORD
+    accuracy_decimals: 1
+    unit_of_measurement: "V"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: consumed_energy_today
+    name: "Consumed energy 1 today"
+    address: 0x3304
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 0
+    unit_of_measurement: "Wh"
+    filters:
+      - multiply: 10.0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: consumed_energy_month
+    name: "Consumed energy 2 month"
+    address: 0x3306
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 0
+    unit_of_measurement: "Wh"
+    filters:
+      - multiply: 10.0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: consumed_energy_year
+    name: "Consumed energy 3 year"
+    address: 0x3308
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    unit_of_measurement: "kWh"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: consumed_energy_total
+    name: "Consumed energy 4 total"
+    address: 0x330A
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    unit_of_measurement: "kWh"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: generated_energy_today
+    name: "Generated energy 1 today"
+    address: 0x330C
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 0
+    unit_of_measurement: "Wh"
+    filters:
+      - multiply: 10.0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: generated_energy_month
+    name: "Generated energy 2 month"
+    address: 0x330E
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 0
+    unit_of_measurement: "Wh"
+    filters:
+      - multiply: 10.0
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: generated_energy_year
+    name: "Generated energy 3 year"
+    address: 0x3310
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    unit_of_measurement: "kWh"
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: epever_total
+    id: generated_energy_total
+    name: "Generated energy 4 total"
+    address: 0x3312
+    register_type: read
+    value_type: U_DWORD_R
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  ##############################################################################
+  #           MH-Z19 co2 
+  ##############################################################################
+  - platform: mhz19
+    co2:
+      name: "MHZ19 co2"
+      id: mhz19_co2
+      internal: false
+      unit_of_measurement: "ppm"
+    temperature:
+      name: "MHZ19 Temperature"
+      id: mhz19_temperature
+      internal: false
+      unit_of_measurement: "°C"
+      accuracy_decimals: 1
+    update_interval: 60s
+    automatic_baseline_calibration: false
+    uart_id: uart_9600_mhz
+
+################################################################################
+#                         binary sensor
+################################################################################
+binary_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    id: charging_input_volt_failure
+    name: "Charging Input Volt Failure"
+    register_type: read
+    address: 0x3201
+    bitmask: 0xC000
+
+################################################################################
+#                         switch sensor
+################################################################################
+switch:
+  - platform: gpio
+    pin: 
+      number: 22
+      inverted: true
+    id: victron_battery_loader
+    name: "Victron Battery Loader"
+    restore_mode: RESTORE_DEFAULT_ON
+    
+################################################################################
+#                         button
+################################################################################
+button:
+  - platform: restart
+    name: "${esp_name} Restart"
+################################################################################
+#                         text sensor
+################################################################################
+text_sensor:
+  # -------------------------------------------------------------------------- #
+  - platform: mqtt_subscribe
+    topic: WoWaIn/Astro/sunrise
+    name: "Astro Sunrise"
+    id: Astro_Sunrise
+    
+  - platform: mqtt_subscribe
+    topic: WoWaIn/Astro/sunset
+    name: "Astro Sunset"
+    id: Astro_Sunset   
+    
+  - platform: mqtt_subscribe
+    topic: WoWaIn/Astro/isDay
+    name: "Astro isDay"
+    id: Astro_isDay    
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/current/icon
+    name: "Weather +0 Icon"
+    id: Weather0_Icon    
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day1/icon
+    name: "Weather +1 Icon"
+    id: Weather1_Icon    
+
+  - platform: mqtt_subscribe
+    topic: WoWaIn/weather/day2/icon
+    name: "Weather +2 Icon"
+    id: Weather2_Icon    
+  # -------------------------------------------------------------------------- #
+  - platform: wifi_info
+    ip_address:
+      name: "${esp_name} IP Address"
+
+  - platform: template #########################
+    name: "RTC Time"
+    lambda: |-
+      if(id(template_rtc_human).state != "") {
+        return (id(template_rtc_human).state);
+      } else {
+        return {};
+      }
+    update_interval: 60s
+    
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "rtc_clock"
+    id: rtc_clock
+    internal: true
+    register_type: holding
+    address: 0x9013
+    register_count: 3
+    raw_encode: HEXBYTES
+    response_size: 6
+    #                /*
+    #                E20 Real time clock 9013 D7-0 Sec, D15-8 Min
+    #                E21 Real time clock 9014 D7-0 Hour, D15-8 Day
+    #                E22 Real time clock 9015 D7-0 Month, D15-8 Year
+    #                */
+    on_value:
+      then:
+        - lambda: |-
+            ESP_LOGV("main", "decoding rtc hex encoded raw data: %s", x.c_str());
+            uint8_t h=0,m=0,s=0,d=0,month_=0,y = 0 ;
+            m = esphome::modbus_controller::byte_from_hex_str(x,0);
+            s = esphome::modbus_controller::byte_from_hex_str(x,1);
+            d = esphome::modbus_controller::byte_from_hex_str(x,2);
+            h = esphome::modbus_controller::byte_from_hex_str(x,3);
+            y = esphome::modbus_controller::byte_from_hex_str(x,4);
+            month_ = esphome::modbus_controller::byte_from_hex_str(x,5);
+            // Now check if the rtc time of the controller is ok and correct it
+            time_t now = ::time(nullptr);
+            struct tm *time_info = ::localtime(&now);
+            int seconds = time_info->tm_sec;
+            int minutes = time_info->tm_min;
+            int hour = time_info->tm_hour;
+            int day = time_info->tm_mday;
+            int month = time_info->tm_mon + 1;
+            int year = time_info->tm_year % 100;
+            // correct time if needed (ignore seconds)
+            if (d != day || month_ != month || y != year || h != hour || m != minutes) {
+              // create the payload
+              std::vector<uint16_t> rtc_data = {uint16_t((minutes << 8) | seconds), uint16_t((day << 8) | hour),
+                                                uint16_t((year << 8) | month)};
+              // Create a modbus command item with the time information as the payload
+              esphome::modbus_controller::ModbusCommandItem set_rtc_command = esphome::modbus_controller::ModbusCommandItem::create_write_multiple_command(epever, 0x9013, 3, rtc_data);
+              // Submit the command to the send queue
+              epever->queue_command(set_rtc_command);
+              ESP_LOGI("ModbusLambda", "EPSOLAR RTC set to %02d:%02d:%02d %02d.%02d.%04d", hour, minutes, seconds, day, month, year + 2000);
+            }
+            char buffer[20];
+            // format time as YYYY-mm-dd hh:mm:ss
+            sprintf(buffer,"%04d-%02d-%02d %02d:%02d:%02d",y+2000,month_,d,h,m,s);
+            id(template_rtc).publish_state(buffer);
+            sprintf(buffer,"%02d.%02d %02d:%02d",d,month_,h,m);
+            id(template_rtc_human).publish_state(buffer);
+
+  - platform: template
+    name: "RTC Time Sensor"
+    id: template_rtc
+    internal: true
+  - platform: template
+    name: "RTC Time Sensor human"
+    id: template_rtc_human
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "rtc clock test 2"
+    id: rtc_clock_test2
+    internal: true
+    register_type: holding
+    address: 0x9013
+    register_count: 3
+    raw_encode: HEXBYTES
+    response_size: 6
+################################################################################

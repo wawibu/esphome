@@ -1,0 +1,105 @@
+substitutions:
+  esp_name: WoWa GPS #Device Name
+  esp_hostname: wowa-gps-esp8266
+  ip_address: 10.3.1.11
+  ip_gw: 10.3.1.1
+  ip_netmask: 255.255.255.0
+################################################################################
+esphome:
+  name: ${esp_hostname}
+################################################################################
+esp8266:
+  board: d1_mini
+################################################################################
+# Enable logging
+logger:
+  level: info
+################################################################################
+ota:
+  id: my_ota
+  password: !secret ota_password
+################################################################################
+wifi:
+  ssid: !secret wifi_wowa_ssid
+  password: !secret wifi_wowa_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${ip_gw}
+    subnet: ${ip_netmask}
+    dns1: ${ip_gw}
+  use_address: ${ip_address}
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${esp_name} Fallback Hotspot"
+    password: !secret ap_password
+################################################################################
+captive_portal:
+
+################################################################################
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Berlin"
+    servers: "de.pool.ntp.org"
+################################################################################    
+web_server:
+  port: 80
+  include_internal: true
+################################################################################
+mqtt:
+  broker: 10.3.1.1
+  port: 1888
+################################################################################
+uart:
+  - id: uart_gps
+    tx_pin: D8
+    rx_pin: D5
+    baud_rate: 9600
+################################################################################
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "ESP IP Address"
+      id: wowa_gps_ipaddress
+      update_interval: 60s
+################################################################################
+sensor:
+  - platform: wifi_signal
+    name: "ESP WiFi Signal Sensor"
+    id: wowa_gps_wifi_strength 
+    update_interval: 60s
+    
+  - platform: template
+    name: "ESP NTP"
+    lambda: |-
+      int now = id(sntp_time).timestamp_now();
+      return now;
+    update_interval: 60s
+    accuracy_decimals: 0 
+################################################################################
+gps:
+  latitude:
+    name: "Latitude"
+    id: wowa_gps_latitude
+  longitude:
+    name: "Longitude"
+    id: wowa_gps_longitude
+  altitude:
+    name: "Altitude"
+    id: wowa_gps_altitude
+  speed:
+    name: "Geschwindigkeit"
+    id: wowa_gps_speed
+  course:
+    name: "Richtung"
+    id: wowa_gps_course
+  satellites:
+    name: "Anzahl Satelliten"
+    id: wowa_gps_satellites
+  hdop:
+    name: "HDOP"
+    id: wowa_gps_hdop
+    
+  update_interval: 60s
+################################################################################
