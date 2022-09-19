@@ -1,0 +1,821 @@
+substitutions:
+  esp_name: WoWa Display #Device Name
+  esp_hostname: wowa-display-lilygo-esp32
+  ip_address: 10.3.1.20
+  ip_gw: 10.3.1.1
+  ip_netmask: 255.255.255.0
+  run_time: 2min #can be as long as needed to get data 
+  sleep_time: 15min # normal sleep time
+  night_sleep_till: "6:30:00"
+################################################################################
+esphome:
+  name: ${esp_hostname}
+  platformio_options:
+      board_upload.flash_size: 16MB
+      board_upload.maximum_ram_size: 327680
+      board_upload.maximum_size: 16777216
+      board_build.partitions: "../../../ESP32Partitions/lilygot5_partitions.csv"
+  on_boot:
+    priority: 900
+    then:
+      lambda: |-
+        id(wake_up_reason) = esp_sleep_get_wakeup_cause();
+  on_shutdown:
+    - if:
+        condition:
+          lambda: |-
+            if (id(wake_up_reason) == 0) {    // sleep after Reset runtime
+              id(wake_up_reason) = 99;
+              return true;
+            } else {
+              return false;
+            }
+        then:
+          - script.execute: all_data_received
+
+################################################################################        
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+################################################################################
+external_components:
+  - source: github://ashald/esphome@lilygo-t5-47
+    components:
+      - lilygo_t5_47
+################################################################################
+logger:
+  level: info
+
+################################################################################
+#esp32_ble_tracker:
+
+################################################################################
+debug:
+  update_interval: 5s
+################################################################################
+ota:
+  id: my_ota
+  password: !secret ota_password
+  on_begin:
+    - deep_sleep.prevent: deep_sleep_1
+    - display.page.show: pageOTA
+    - component.update: t5_display 
+  on_end:
+    - lambda: id(wake_up_reason) = 98;
+    - deep_sleep.allow: deep_sleep_1
+    
+
+################################################################################
+wifi:
+  ssid: !secret wifi_wowa_ssid
+  password: !secret wifi_wowa_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${ip_gw}
+    subnet: ${ip_netmask}
+    dns1: ${ip_gw}
+  use_address: ${ip_address}
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${esp_name} Fallback Hotspot"
+    password: !secret ap_password
+################################################################################
+deep_sleep:
+  run_duration: ${run_time} 
+  sleep_duration: ${sleep_time}
+  id: deep_sleep_1
+  esp32_ext1_wakeup:
+    pins: 
+      - GPIO39
+    mode: ALL_LOW
+
+################################################################################
+globals:
+  - id: wake_up_reason
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: all_updated
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+################################################################################
+captive_portal:
+
+################################################################################
+time:
+  - platform: sntp
+    id: sntp_id
+    timezone: "Europe/Berlin"
+    servers: "de.pool.ntp.org"
+    
+################################################################################
+web_server:
+  port: 80
+  include_internal: true
+  
+################################################################################
+mqtt:
+  broker: 10.3.1.1
+  port: 1888
+################################################################################
+font:
+  - file: "gfonts://Ubuntu Mono"
+    id: font_name
+    size: 38
+  - file: 
+      type: gfonts
+      family: "Ubuntu Mono"
+      weight: bold
+    id: font_name_bold
+    size: 44
+
+  - file: "gfonts://Ubuntu Mono"
+    id: font_total
+    size: 40
+  - file: 
+      type: gfonts
+      family: "Ubuntu Mono"
+      weight: bold
+    id: font_value
+    size: 90
+ 
+    
+    # https://pictogrammers.github.io/@mdi/font/5.3.45/
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_icons
+    size: 160
+    glyphs:
+      - "\U000F0594" # clear-night
+      - "\U000F0590" # cloudy
+      - "\U000F0595" # partlycloudy
+      - "\U000F0591" # fog      
+      - "\U000F0592" # hail
+      - "\U000F0593" # lightning
+      - "\U000F067E" # lightning-rainy
+      - "\U000F0596" # pouring
+      - "\U000F0597" # rainy
+      - "\U000F0F36" # snowy
+      - "\U000F067F" # snowy-rainy
+      - "\U000F0599" # sunny
+      - "\U000F059D" # windy
+      - "\U000F059E" # windy-variant
+      - "\U000F0F38" # exceptional
+      - "\U000F07A8" # mdi-car-estate
+      - "\U000F09F0" # mdi-flower-outline
+      - "\U000F13D8" # unkown weather
+  
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_icons_very_small
+    size: 40
+    glyphs:
+      - "\U000F10C2" # Temperature High
+      - "\U000F10C3" # Temperature Low
+      - "\U000F01AB" # water
+      
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_sleep_icon
+    size: 300
+    glyphs:
+      - "\U000F12D1" # sleep at night
+      - "\U000F1378" # OTA Icon
+  
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_icons_small
+    size: 56
+    glyphs:
+      - "\U000F10C2" # Temperature High
+      - "\U000F10C3" # Temperature Low
+      - "\U000F07E4" # CO2
+      - "\U000F054B" # umbrella      
+      - "\U000F0592" # hail
+      - "\U000F0593" # lightning
+      - "\U000F067E" # lightning-rainy
+      - "\U000F0597" # rainy
+      - "\U000F0F36" # snowy
+      - "\U000F0594" # clear-night
+      - "\U000F0599" # sunny
+      - "\U000F07CA" # fuel
+      - "\U000F024A" # flower
+      - "\U000F051F" # time-remaining
+      - "\U000F140B" # Energy
+      - "\U000F06B0" # progress-clock
+      - "\U000F10CD" # mdi-battery-Alert
+      - "\U000F007A" # mdi-battery-10
+      - "\U000F007B" # mdi-battery-20
+      - "\U000F007C" # mdi-battery-30
+      - "\U000F007D" # mdi-battery-40
+      - "\U000F007E" # mdi-battery-50
+      - "\U000F007F" # mdi-battery-60
+      - "\U000F0080" # mdi-battery-70
+      - "\U000F0081" # mdi-battery-80
+      - "\U000F0082" # mdi-battery-90
+      - "\U000F0079" # mdi-battery 100
+      - "\U000F059B" # sunset-down
+      - "\U000F059C" # sunset-up
+      - "\U000F13D8" # unkown weather
+
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_icons_mid
+    size: 80
+    glyphs:
+       - "\U000F010C" # car-battery
+       - "\U000F1A74" # solar
+       - "\U000F06E9" # bulb
+       - "\U000F0D3E" # transmission-tower 
+       - "\U000F09BF" # arrow-down
+       
+################################################################################      
+button:
+  - platform: restart
+    name: "${esp_name} Restart"
+
+  - platform: template
+    name: "${esp_name} Refresh"
+    icon: "mdi:update"
+    on_press:
+      then:
+        - display.page.show: pageNormal
+        - component.update: t5_display
+
+################################################################################
+binary_sensor:
+  - platform: gpio
+    pin: 
+      number: GPIO39
+      inverted: true
+    name: "${esp_name} Button 1"
+    on_press:
+      then:
+        - display.page.show: pageNormal
+        - component.update: t5_display
+      
+  - platform: gpio
+    pin: 
+      number: GPIO34
+      inverted: true
+    name: "${esp_name} Button 2"
+
+  - platform: gpio
+    pin: 
+      number: GPIO35
+      inverted: true
+    name: "${esp_name} Button 3"
+    
+################################################################################
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${esp_name} WiFi IP Address"
+      id: ESP_IPAddress
+    mac_address:
+      name: "${esp_name} WiFi MAC"
+      
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/astro_sunrise/state
+    name: "Astro Sunrise"
+    id: Astro_Sunrise
+    on_value:
+      lambda: bitSet(id(all_updated),0);
+    
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/astro_sunset/state
+    name: "Astro Sunset"
+    id: Astro_Sunset   
+    on_value:
+      lambda: bitSet(id(all_updated),1);   
+      
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/astro_isday/state
+    name: "Astro isDay"
+    id: Astro_isDay    
+    on_value:
+      lambda: bitSet(id(all_updated),2);   
+      
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_0_icon/state
+    name: "Weather +0 Icon"
+    id: Weather0_Icon    
+    on_value:
+      lambda: bitSet(id(all_updated),3);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_1_icon/state
+    name: "Weather +1 Icon"
+    id: Weather1_Icon    
+    on_value:
+      lambda: bitSet(id(all_updated),4);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_2_icon/state
+    name: "Weather +2 Icon"
+    id: Weather2_Icon    
+    on_value:
+      lambda: bitSet(id(all_updated),5);   
+      
+################################################################################    
+sensor:
+  - platform: debug
+    free:
+      name: "${esp_name} Heap Free"
+
+  - platform: lilygo_t5_47
+    name: "${esp_name} Battery Voltage"
+    id: batt_volt
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    
+  - platform: wifi_signal
+    name: "${esp_name} WiFi Strength"
+    update_interval: 60s
+
+  - platform: template
+    name: "${esp_name} Battery"
+    id: batt
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: battery
+    lambda: |-
+      int y = (1-(4.1-id(batt_volt).state)/(4.1-3.3))*100;
+      if (y < 100) {return y;} else {return 100;};
+    update_interval: never
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/landstrom_used/state
+    name: "Landstrom Used"
+    id: WoWa_LandPowerUsed
+    on_value:
+      lambda: bitSet(id(all_updated),6);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/astro_moon_age/state
+    name: "Astro Moon Age"
+    id: Astro_MoonAge
+    on_value:
+      lambda: bitSet(id(all_updated),7);   
+      
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/astro_moon_percent/state
+    name: "Astro Moon Percent"
+    id: Astro_MoonPercent
+    on_value:
+      lambda: bitSet(id(all_updated),8);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_0_temp_current/state
+    name: "Weather +0 Temp Current"
+    id: Weather0_TempCurrent
+    on_value:
+      lambda: bitSet(id(all_updated),9);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_0_humidity/state
+    name: "Weather +0 Humidity"
+    id: Weather0_Humidity
+    on_value:
+      lambda: bitSet(id(all_updated),10);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_0_temp_max/state
+    name: "Weather +0 Temp Max"
+    id: Weather0_TempMax 
+    on_value:
+      lambda: bitSet(id(all_updated),11);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_0_temp_min/state
+    name: "Weather +0 Temp Min"
+    id: Weather0_TempMin
+    on_value:
+      lambda: bitSet(id(all_updated),12);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_1_temp_max/state
+    name: "Weather +1 Temp Max"
+    id: Weather1_TempMax 
+    on_value:
+      lambda: bitSet(id(all_updated),13);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_1_temp_min/state
+    name: "Weather +1 Temp Min"
+    id: Weather1_TempMin
+    on_value:
+      lambda: bitSet(id(all_updated),14);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_1_time/state
+    name: "Weather +1 Time"
+    id: Weather1_Time
+    on_value:
+      lambda: bitSet(id(all_updated),15);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_2_temp_max/state
+    name: "Weather +2 Temp Max"
+    id: Weather2_TempMax
+    on_value:
+      lambda: bitSet(id(all_updated),16);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_2_temp_min/state
+    name: "Weather +2 Temp Min"
+    id: Weather2_TempMin
+    on_value:
+      lambda: bitSet(id(all_updated),17);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/weather_2_time/state
+    name: "Weather +2 Time"
+    id: Weather2_Time
+    on_value:
+      lambda: bitSet(id(all_updated),18);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/battery_voltage/state
+    name: "Batterie Voltage"
+    id: WoWa_BatteryVoltage
+    accuracy_decimals: 2
+    unit_of_measurement: "V"
+    on_value:
+      lambda: bitSet(id(all_updated),19);   
+    
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/pv_voltage/state
+    name: "PV Voltage"
+    id: WoWa_PVVoltage
+    accuracy_decimals: 2
+    unit_of_measurement: "V"
+    on_value:
+      lambda: bitSet(id(all_updated),20);   
+    
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/load_current/state
+    name: "Load Current"
+    id: WoWa_LoadCurrent
+    accuracy_decimals: 3
+    unit_of_measurement: "A"
+    on_value:
+      lambda: bitSet(id(all_updated),21);   
+    
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/charging_current/state
+    name: "Charging Current"
+    id: WoWa_ChargingCurrent
+    accuracy_decimals: 3
+    unit_of_measurement: "A"
+    on_value:
+      lambda: bitSet(id(all_updated),22);
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/mhz19_co2/state
+    name: "MHZ19 co2"
+    id: WoWa_mhz19_co2
+    accuracy_decimals: 0
+    unit_of_measurement: "ppm"
+    on_value:
+      lambda: bitSet(id(all_updated),23);
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/mhz19_temperature/state
+    name: "MHZ19 Temperatur"
+    id: WoWa_mhz19_temperatur
+    accuracy_decimals: 1
+    unit_of_measurement: "°C"
+    on_value:
+      lambda: bitSet(id(all_updated),24);   
+
+  - platform: mqtt_subscribe
+    topic: wowa-epever-esp32/sensor/water_remaining/state
+    name: "Waterlevel Liter"
+    id: WoWa_Waterlevel
+    accuracy_decimals: 0
+    unit_of_measurement: "l"
+    on_value:
+      - lambda: bitSet(id(all_updated),25);
+      - component.update: WoWa_waterpercent
+      - component.update: t5_display
+
+  - platform: template
+    name: "Waterlevel Percent"
+    id: WoWa_waterpercent
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    lambda: |-
+      if (id(WoWa_Waterlevel).state) {
+        int y = (1-(40-id(WoWa_Waterlevel).state)/40)*100;
+        if (y < 100) {
+          return y;
+        } else {
+          return 100;
+        };
+      } else {
+        return 0;
+      }
+    update_interval: never
+################################################################################       
+interval:
+  - interval: 1s
+    then:
+      - script.execute: check_all_received
+
+################################################################################   
+script:
+  - id: check_all_received
+    then:
+#      - logger.log: 
+#          format: "check all received %i"
+#          args: id(all_updated)
+      - if:
+          condition:
+            lambda: |-
+              #define maxSensorData (24 + 1)
+              
+              if (id(all_updated) == (pow(2,maxSensorData) - 1)) {
+                //ESP_LOGI("check","matching");
+                return true;
+              } else {
+                //ESP_LOGI("check","not matching %i ", id(all_updated));
+                //ESP_LOGI("check","soll %.0f ", (pow(2,maxSensorData) - 1));
+                return false;
+              }
+          then: 
+            - script.execute: all_data_received
+            
+  - id: all_data_received
+    then:
+      - component.update: batt_volt
+      - component.update: batt
+      - component.update: WoWa_waterpercent
+      - globals.set:
+          id: all_updated
+          value: '0'
+      - if:
+          condition:
+            lambda: |-
+              if (id(wake_up_reason) == 0) {
+                return true;
+              } else {
+                return false;
+              }
+          then:
+            - logger.log: "Restart from Reset Button - waiting for OTA"
+            - display.page.show: pageNormal
+            - component.update: t5_display
+          else:
+            - logger.log: "Restart from Timer - going to sleep"
+            - script.execute: enter_sleep
+
+  - id: enter_sleep
+    then:
+      - if:
+          condition:
+            lambda: |- 
+              auto time = id(sntp_id).now();
+              if (!time.is_valid()) { 
+                return false;
+              }
+              return (time.hour < 6 || time.hour > 22); 
+          then:
+            - logger.log: "It's nighttime, entering long sleep until ${night_sleep_till}"
+            - display.page.show: pageNightSleep
+            - component.update: t5_display 
+            - deep_sleep.enter: 
+                id: deep_sleep_1 
+                until: ${night_sleep_till}
+                time_id: sntp_id
+          else:
+            - logger.log: "It's daytime, entering short sleep for ${sleep_time}"
+            - display.page.show: pageNormal
+            - component.update: t5_display 
+            - deep_sleep.enter: 
+                id: deep_sleep_1 
+                sleep_duration: ${sleep_time}
+
+################################################################################
+################################################################################
+display:
+  - platform: lilygo_t5_47
+    id: t5_display
+    update_interval: never # 10s
+    full_update_every: 20 # optional (default:  1): 0 - never, 1 (default) - every, 2+ - throttled
+#    cycles_render: 20     # optional (default: 20): higher number -> less ghosting, crisper image, more time
+#    cycles_invert: 20     # optional (default: 20): higher number -> more timef or full update, but mor burn-in protection    
+    pages:
+      - id: pageNormal
+        lambda: |-
+          #define NOT_FOUND               -1
+          #define xres                    960
+          #define yres                    540 
+          #define x_pad                   10    // border padding
+          #define y_pad                   10    // border padding
+          #define cat_pad                 85    // padding before category
+          #define val_pad                 70    // padding before value
+          #define frame_x_pad             20
+          #define frame_y_pad             50
+  
+          #define frame_left_w            650
+          #define frame_right_s           (frame_left_w + 50)
+          #define frame_header_h          70
+          #define frame_footer            464
+          #define frame_w                 4
+          #define weather_icon_x_offset   200
+          #define weather_icon_size       160   // needs to match size of big weather icons
+          #define frame_left_offset       -20
+          
+          #define frame_left_h            frame_footer
+          #define frame_right_w           (yres - frame_left_w)
+          #define frame_footer_h          (yres - frame_footer) // 75
+          #define weather_icon_x          (frame_left_w / 5)
+          #define weather_icon_y_offset   (y_pad * 3)
+          
+          time_t weatherTime;
+          char weatherDay[10];
+          
+          setlocale(LC_ALL, "German");
+
+          // it.fill(COLOR_OFF);
+          // Frame
+          it.filled_rectangle(            0, frame_header_h, frame_left_w,      frame_w);   // Line header
+          it.filled_rectangle(            0,   frame_footer,         xres,      frame_w);   // Line footer
+          it.filled_rectangle( frame_left_w,              0,      frame_w, frame_footer);   // Line water
+          it.filled_rectangle( frame_right_s + 6,              0,      frame_w, frame_footer);   // Line data
+
+          // ##################################################################################################################################################################################################
+          
+          // Header ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          if (id(wake_up_reason) == 0) {    // Reset boot - waiting for OTA
+            it.filled_rectangle(          0,              0, frame_left_w, frame_header_h);
+            it.printf(frame_left_w / 2, frame_header_h / 2, id(font_name_bold), COLOR_OFF,TextAlign::CENTER, id(sntp_id).now().strftime("%d. %B %Y").c_str());
+          } else {
+            it.printf(frame_left_w / 2, frame_header_h / 2, id(font_name_bold), TextAlign::CENTER, id(sntp_id).now().strftime("%d. %B %Y").c_str());
+          }
+
+          // ##################################################################################################################################################################################################
+          
+          // Last Refresh Time -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf((xres / 4) * 0 +   x_pad, frame_footer + (frame_footer_h / 2) , id(font_icons_small), TextAlign::CENTER_VERTICAL, "\U000F06B0");
+          it.printf((xres / 4) * 0 + val_pad, frame_footer + (frame_footer_h / 2) , id(font_name)       , TextAlign::CENTER_VERTICAL, id(sntp_id).now().strftime("%H:%M").c_str());
+          
+          // Sunrise ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf((xres / 4) * 1 +   x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL,"\U000F059C");
+          it.printf((xres / 4) * 1 + val_pad, frame_footer + (frame_footer_h / 2), id(font_name)        , TextAlign::CENTER_VERTICAL,"%s", id(Astro_Sunrise).state.c_str());
+  
+          // Sunset ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf((xres / 4) * 2 + x_pad  , frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL,"\U000F059B");
+          it.printf((xres / 4) * 2 + val_pad, frame_footer + (frame_footer_h / 2), id(font_name)        , TextAlign::CENTER_VERTICAL, "%s", id(Astro_Sunset).state.c_str());
+          
+          // Batteriestatus ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          if      (id(batt).state <=  5) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F10CD"); } // Alert 
+          else if (id(batt).state <= 15) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F007A"); } // 10% 
+          else if (id(batt).state <= 25) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F007B"); } // 20% 
+          else if (id(batt).state <= 35) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F007C"); } // 30% 
+          else if (id(batt).state <= 45) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F007D"); } // 40% 
+          else if (id(batt).state <= 55) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F007E"); } // 50% 
+          else if (id(batt).state <= 65) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F007F"); } // 60% 
+          else if (id(batt).state <= 75) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F0080"); } // 70% 
+          else if (id(batt).state <= 85) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F0081"); } // 80% 
+          else if (id(batt).state <= 95) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F0082"); } // 90% 
+          else if (id(batt).state >  95) { it.print ((xres / 4) * 3 + x_pad, frame_footer + (frame_footer_h / 2), id(font_icons_small) , TextAlign::CENTER_VERTICAL, "\U000F0079"); } // 100%
+          it.printf((xres / 4) * 3 + val_pad, frame_footer + (frame_footer_h / 2), id(font_name)        , TextAlign::CENTER_VERTICAL, "%1.2fV", id(batt_volt).state);
+
+          // ##################################################################################################################################################################################################
+          int water_height = frame_left_h - (y_pad * 2)- frame_y_pad;
+          int water_filled = water_height * (id(WoWa_waterpercent).state / 100);
+          int water_unfilled = water_height - water_filled;
+          int water_width = (frame_right_s - frame_left_w - (1 * x_pad));
+          
+          it.rectangle       (frame_left_w + x_pad    , y_pad + frame_y_pad                 , water_width    , water_height    );
+          it.rectangle       (frame_left_w + x_pad + 1, y_pad + frame_y_pad + 1             , water_width - 2, water_height - 2);
+          it.rectangle       (frame_left_w + x_pad + 2, y_pad + frame_y_pad + 2             , water_width - 4, water_height - 4);
+          if(isnan(id(WoWa_Waterlevel).state)) {
+            it.line (frame_left_w + x_pad + 0, y_pad + frame_y_pad + 0, frame_left_w + x_pad + water_width - 4, y_pad + frame_y_pad + water_height - 4);
+            it.line (frame_left_w + x_pad + 1, y_pad + frame_y_pad + 1, frame_left_w + x_pad + water_width - 2, y_pad + frame_y_pad + water_height - 2);
+            it.line (frame_left_w + x_pad + 2, y_pad + frame_y_pad + 2, frame_left_w + x_pad + water_width - 0, y_pad + frame_y_pad + water_height - 0);
+          } else {
+            it.filled_rectangle(frame_left_w + x_pad    , y_pad + frame_y_pad + water_unfilled, water_width    , water_filled    );
+          }
+
+          it.printf          (frame_left_w + x_pad + (water_width / 2), y_pad, id(font_icons_very_small) , TextAlign::CENTER_HORIZONTAL, "\U000F01AB");
+
+          // ##################################################################################################################################################################################################
+  
+          // WoWa PV ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf(frame_right_s + frame_x_pad, (frame_left_h / 5) * 0 + frame_y_pad , id(font_icons_mid), TextAlign::CENTER_VERTICAL, "\U000F1A74");
+          it.printf(        xres - frame_x_pad, (frame_left_h / 5) * 0 + frame_y_pad , id(font_total)    , TextAlign::CENTER_RIGHT   , "%2.2fV",id(WoWa_PVVoltage).state);
+          
+          it.printf(frame_right_s + frame_x_pad, (frame_left_h / 5) * 1 + frame_y_pad , id(font_icons_mid), TextAlign::CENTER_VERTICAL, "\U000F09BF");
+          it.printf(        xres - frame_x_pad, (frame_left_h / 5) * 1 + frame_y_pad , id(font_total)    , TextAlign::CENTER_RIGHT   , "%2.2fA",id(WoWa_ChargingCurrent).state);
+          
+          // WoWa Battery -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf(frame_right_s + frame_x_pad, (frame_left_h / 5) * 2 + frame_y_pad , id(font_icons_mid), TextAlign::CENTER_VERTICAL, "\U000F010C");
+          it.printf(        xres - frame_x_pad, (frame_left_h / 5) * 2 + frame_y_pad , id(font_total)    , TextAlign::CENTER_RIGHT   , "%2.2fV",id(WoWa_BatteryVoltage).state);
+  
+          // WoWa Last ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf(frame_right_s + frame_x_pad, (frame_left_h / 5) * 3 + frame_y_pad , id(font_icons_mid), TextAlign::CENTER_VERTICAL, "\U000F06E9");
+          it.printf(        xres - frame_x_pad, (frame_left_h / 5) * 3 + frame_y_pad , id(font_total)    , TextAlign::CENTER_RIGHT   , "%2.2fA",id(WoWa_LoadCurrent).state);
+  
+          // WoWa Landstrom Verbrauch -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf(frame_right_s + frame_x_pad, (frame_left_h / 5) * 4 + frame_y_pad , id(font_icons_mid), TextAlign::CENTER_VERTICAL, "\U000F0D3E");
+          it.printf(        xres - frame_x_pad, (frame_left_h / 5) * 4 + frame_y_pad , id(font_total)    , TextAlign::CENTER_RIGHT   , "%4.1fkwh",id(WoWa_LandPowerUsed).state);
+          
+          // ##################################################################################################################################################################################################
+          
+          // MHZ Temp and co2 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.printf((frame_left_w / 4) * 1, (frame_left_h / 3) * 1 - y_pad + frame_left_offset, id(font_value), TextAlign::CENTER, "%2.1f°C", id(WoWa_mhz19_temperatur).state);
+          it.printf((frame_left_w / 4) * 3, (frame_left_h / 3) * 1 - y_pad + frame_left_offset, id(font_value), TextAlign::CENTER, "%4.0fppm",  id(WoWa_mhz19_co2).state);
+
+          //Weather Icon --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          it.print (x_pad, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 5) + frame_left_offset, id(font_icons_very_small), TextAlign::CENTER_LEFT, "\U000F10C3");
+          it.print (x_pad, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 9) + frame_left_offset, id(font_icons_very_small), TextAlign::CENTER_LEFT, "\U000F10C2");
+  
+               if (id(Weather0_Icon).state == "clear-night")                        { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0594"); } 
+          else if (id(Weather0_Icon).state == "clear-day")                          { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0599"); } 
+          else if ((id(Weather0_Icon).state.find("partly-cloudy"))    != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0595"); } 
+          else if ((id(Weather0_Icon).state.find("cloudy"))           != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0590"); } 
+          else if ((id(Weather0_Icon).state.find("fog"))              != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0591"); } 
+          else if ((id(Weather0_Icon).state.find("hail"))             != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0592"); } 
+          else if ((id(Weather0_Icon).state.find("lightning"))        != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0593"); } 
+          else if ((id(Weather0_Icon).state.find("lightning-rainy"))  != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F067E"); } 
+          else if ((id(Weather0_Icon).state.find("pouring"))          != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0596"); } 
+          else if ((id(Weather0_Icon).state.find("rain"))             != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0597"); } 
+          else if ((id(Weather0_Icon).state.find("snowy"))            != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0F36"); } 
+          else if ((id(Weather0_Icon).state.find("snowy-rainy"))      != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F067F"); } 
+          else if ((id(Weather0_Icon).state.find("windy"))            != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F059D"); } 
+          else if ((id(Weather0_Icon).state.find("windy-variant"))    != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F059E"); } 
+          else if ((id(Weather0_Icon).state.find("exceptional"))      != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0F38"); }
+          else                                                                      { it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F13D8"); }
+          it.print (weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 1) + frame_left_offset, id(font_name), TextAlign::CENTER, "Heute");
+          it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 5) + frame_left_offset, id(font_name), TextAlign::CENTER, "%2.1f°C", id(Weather0_TempMin).state);
+          it.printf(weather_icon_x + weather_icon_x_offset * 0, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 9) + frame_left_offset, id(font_name), TextAlign::CENTER, "%2.1f°C", id(Weather0_TempMax).state);
+  
+         
+          //Weather Icon +1
+          weatherTime = (time_t) id(Weather1_Time).state;
+          strftime(weatherDay, sizeof(weatherDay),"%a", localtime(&weatherTime));
+               if (id(Weather1_Icon).state == "clear-night")                        { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0594"); } 
+          else if (id(Weather1_Icon).state == "clear-day")                          { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0599"); } 
+          else if ((id(Weather1_Icon).state.find("partly-cloudy"))    != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0595"); } 
+          else if ((id(Weather1_Icon).state.find("cloudy"))           != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0590"); } 
+          else if ((id(Weather1_Icon).state.find("fog"))              != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0591"); } 
+          else if ((id(Weather1_Icon).state.find("hail"))             != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0592"); } 
+          else if ((id(Weather1_Icon).state.find("lightning"))        != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0593"); } 
+          else if ((id(Weather1_Icon).state.find("lightning-rainy"))  != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F067E"); } 
+          else if ((id(Weather1_Icon).state.find("pouring"))          != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0596"); } 
+          else if ((id(Weather1_Icon).state.find("rain"))             != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0597"); } 
+          else if ((id(Weather1_Icon).state.find("snowy"))            != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0F36"); } 
+          else if ((id(Weather1_Icon).state.find("snowy-rainy"))      != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F067F"); } 
+          else if ((id(Weather1_Icon).state.find("windy"))            != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F059D"); } 
+          else if ((id(Weather1_Icon).state.find("windy-variant"))    != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F059E"); } 
+          else if ((id(Weather1_Icon).state.find("exceptional"))      != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0F38"); }
+          else                                                                      { it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F13D8"); }
+          it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 1) + frame_left_offset, id(font_name), TextAlign::CENTER, "%s", weatherDay);
+          it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 5) + frame_left_offset, id(font_name), TextAlign::CENTER, "%2.1f°C", id(Weather1_TempMin).state);
+          it.printf(weather_icon_x + weather_icon_x_offset * 1, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 9) + frame_left_offset, id(font_name), TextAlign::CENTER, "%2.1f°C", id(Weather1_TempMax).state);
+          
+    
+          //Weather Icon +2
+          weatherTime = (time_t) id(Weather2_Time).state;
+          strftime(weatherDay, sizeof(weatherDay),"%a", localtime(&weatherTime));
+               if (id(Weather2_Icon).state == "clear-night")                        { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0594"); } 
+          else if (id(Weather2_Icon).state == "clear-day")                          { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0599"); } 
+          else if ((id(Weather2_Icon).state.find("partly-cloudy"))    != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0595"); } 
+          else if ((id(Weather2_Icon).state.find("cloudy"))           != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0590"); } 
+          else if ((id(Weather2_Icon).state.find("fog"))              != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0591"); } 
+          else if ((id(Weather2_Icon).state.find("hail"))             != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0592"); } 
+          else if ((id(Weather2_Icon).state.find("lightning"))        != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0593"); } 
+          else if ((id(Weather2_Icon).state.find("lightning-rainy"))  != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F067E"); } 
+          else if ((id(Weather2_Icon).state.find("pouring"))          != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0596"); } 
+          else if ((id(Weather2_Icon).state.find("rain"))             != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0597"); } 
+          else if ((id(Weather2_Icon).state.find("snowy"))            != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0F36"); } 
+          else if ((id(Weather2_Icon).state.find("snowy-rainy"))      != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F067F"); } 
+          else if ((id(Weather2_Icon).state.find("windy"))            != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F059D"); } 
+          else if ((id(Weather2_Icon).state.find("windy-variant"))    != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F059E"); } 
+          else if ((id(Weather2_Icon).state.find("exceptional"))      != NOT_FOUND) { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F0F38"); }
+          else                                                                      { it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + frame_left_offset, id(font_icons), TextAlign::CENTER, "\U000F13D8"); }
+          it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 1) + frame_left_offset, id(font_name), TextAlign::CENTER, "%s", weatherDay);
+          it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 5) + frame_left_offset, id(font_name), TextAlign::CENTER, "%2.1f°C", id(Weather2_TempMin).state);
+          it.printf(weather_icon_x + weather_icon_x_offset * 2, (frame_left_h / 3) * 2 - weather_icon_y_offset + (weather_icon_size / 2) + (x_pad * 9) + frame_left_offset, id(font_name), TextAlign::CENTER, "%2.1f°C", id(Weather2_TempMax).state);
+          
+          // ##################################################################################################################################################################################################
+          
+      - id: pageNightSleep
+        lambda: |-
+          #define xres                    960
+          #define yres                    540 
+          it.fill(COLOR_ON);
+          it.printf(xres / 2, yres / 2, id(font_sleep_icon), COLOR_OFF, TextAlign::CENTER, "\U000F12D1");
+          // ##################################################################################################################################################################################################
+
+      - id: pageOTA
+        lambda: |-
+          #define xres                    960
+          #define yres                    540 
+          it.fill(COLOR_ON);
+          it.printf(xres / 2, yres / 2, id(font_sleep_icon), COLOR_OFF, TextAlign::CENTER, "\U000F1378");
+          // ##################################################################################################################################################################################################
+
